@@ -259,11 +259,17 @@ for large surfaces: `transport: [stdio, http]` + `orchestration: code` +
 Parsed field: `APISpec.MCP` (`spec.MCPConfig`)
 
 Rules:
-- Optional. Specs without `x-mcp` get the endpoint-mirror surface; small APIs
-  (typed-endpoint count at or below `spec.DefaultRemoteTransportEndpointThreshold`,
-  currently 30) also get the http transport compiled in alongside stdio so the
-  same binary can reach cloud-hosted agents. Setting `transport` explicitly
-  (including `transport: [stdio]`) bypasses the default and is honored as-is.
+- Optional. Specs without `x-mcp` get the endpoint-mirror surface while they
+  remain at or below the orchestration threshold. Small APIs (typed-endpoint
+  count at or below `spec.DefaultRemoteTransportEndpointThreshold`, currently
+  30) also get the http transport compiled in alongside stdio so the same
+  binary can reach cloud-hosted agents. Large APIs above
+  `spec.DefaultOrchestrationThreshold` (currently 50) default to the Cloudflare
+  MCP pattern (`transport: [stdio, http]`, `orchestration: code`, and
+  `endpoint_tools: hidden`) when `orchestration` is unset. Set
+  `orchestration: endpoint-mirror` to opt out. Setting `transport` explicitly
+  (including `transport: [stdio]`) bypasses the transport default and is
+  honored as-is.
 - May be declared at the OpenAPI root or under `info`. Root takes precedence
   when both are present.
 - For backwards compatibility, root-level `mcp:` is also accepted when

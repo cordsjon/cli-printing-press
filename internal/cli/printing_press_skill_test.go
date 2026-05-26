@@ -28,14 +28,13 @@ func TestPrintingPressSkillMCPEnrichmentGate(t *testing.T) {
 	require.NoError(t, err)
 
 	content := string(data)
-	require.Contains(t, content, "Mandatory >50 endpoint-tools gate")
-	require.Contains(t, content, "spec exposes <N> MCP endpoint tools (>50 threshold)")
-	require.Contains(t, content, "actual numeric count printed by the generator")
-	require.Contains(t, content, "AskUserQuestion")
-	require.Contains(t, content, "Apply Cloudflare MCP pattern + regenerate (recommended)")
-	require.Contains(t, content, "OpenAPI input: write or update a root `x-mcp:` block")
-	require.Contains(t, content, "Internal YAML input: write or update the root `mcp:` block")
-	require.Contains(t, content, "If the runtime cannot ask a blocking question, stop")
+	require.Contains(t, content, "Mandatory >50 endpoint-tools confirmation")
+	require.Contains(t, content, "info: applied Cloudflare MCP pattern")
+	require.Contains(t, content, "does not require a blocking question")
+	require.Contains(t, content, "mcp.orchestration: endpoint-mirror")
+	require.Contains(t, content, "x-mcp.orchestration: endpoint-mirror")
+	require.Contains(t, content, "For OpenAPI input specs, declare these fields under `x-mcp:`")
+	require.Contains(t, content, "internal-YAML `mcp:` block")
 }
 
 func TestPrintingPressSkillTranscendenceCollectorSliceInit(t *testing.T) {
