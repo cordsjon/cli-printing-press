@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1675,6 +1676,28 @@ func TestPopulateMCPMetadata(t *testing.T) {
 	assert.True(t, m.AuthOptional)
 	assert.Equal(t, "Test Auth", m.AuthTitle)
 	assert.Equal(t, "Use this test credential.", m.AuthDescription)
+}
+
+func TestPopulateMCPMetadataDoesNotMutateLargeMCPSurfaceDefault(t *testing.T) {
+	parsed := &spec.APISpec{
+		Name:      "test",
+		Auth:      spec.AuthConfig{Type: "none"},
+		Resources: map[string]spec.Resource{},
+	}
+	r := spec.Resource{Endpoints: map[string]spec.Endpoint{}}
+	for i := range spec.DefaultOrchestrationThreshold + 1 {
+		name := fmt.Sprintf("get_%d", i)
+		r.Endpoints[name] = spec.Endpoint{Method: "GET", Path: fmt.Sprintf("/items/%d", i)}
+	}
+	parsed.Resources["items"] = r
+
+	var m CLIManifest
+	populateMCPMetadata(&m, parsed)
+
+	assert.Equal(t, spec.DefaultOrchestrationThreshold+1, m.MCPToolCount)
+	assert.Empty(t, parsed.MCP.Orchestration)
+	assert.Empty(t, parsed.MCP.EndpointTools)
+	assert.Empty(t, parsed.MCP.Transport)
 }
 
 func TestPopulateMCPMetadataMCPBinaryUsesAPINameWhenPresent(t *testing.T) {
