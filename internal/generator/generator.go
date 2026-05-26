@@ -2192,7 +2192,7 @@ func (g *Generator) renderLearnFiles() error {
 }
 
 func (g *Generator) Generate() error {
-	warnUnenrichedLargeMCPSurface(g.Spec, os.Stderr)
+	applyLargeMCPSurfaceDefault(g.Spec, os.Stderr)
 	if g.Spec.OwnerName == "" {
 		// OwnerName flows into Hermes `author:` and other prose
 		// surfaces. We don't hard-fail on an empty value because the
@@ -2377,6 +2377,7 @@ func frameworkUseNameForTemplate(tmpl string) string {
 // autoRefresh) stay in renderOptionalSupportFiles so they don't get
 // emitted when the spec opts out.
 func (g *Generator) GenerateMCPSurface() error {
+	applyLargeMCPSurfaceDefault(g.Spec, os.Stderr)
 	if err := g.prepareOutput(); err != nil {
 		return err
 	}

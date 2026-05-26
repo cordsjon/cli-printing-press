@@ -181,6 +181,7 @@ func WriteToolsManifestWithDescription(dir string, parsed *spec.APISpec, manifes
 	if parsed == nil {
 		return fmt.Errorf("parsed spec is nil")
 	}
+	parsed.ApplyLargeMCPSurfaceDefault()
 
 	endpoints := manifestEndpointRecords(parsed)
 	total, public := manifestToolCounts(endpoints)

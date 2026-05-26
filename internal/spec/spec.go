@@ -217,7 +217,7 @@ type APISpec struct {
 	Cache                       CacheConfig         `yaml:"cache,omitempty" json:"cache"`                             // cache freshness + auto-refresh config; when enabled, generated read commands auto-refresh stale local data before serving
 	Share                       ShareConfig         `yaml:"share,omitempty" json:"share"`                             // git-backed snapshot sharing config; when enabled, emits a `share` subcommand that publishes/subscribes to a git repo
 	Learn                       LearnConfig         `yaml:"learn,omitempty" json:"learn,omitzero"`                    // self-learning loop config: ticker patterns, stopwords, and entity-lookup seeds the generated CLI uses to cache teaches and generalize through entity substitution. Absent or disabled is a benign no-op.
-	MCP                         MCPConfig           `yaml:"mcp,omitempty" json:"mcp"`                                 // MCP server generation config; when unset, small APIs (typed-endpoint count <= DefaultRemoteTransportEndpointThreshold) get stdio+http compiled in by APISpec.EffectiveMCPTransports so the same binary can serve cloud-hosted agents. Larger APIs stay stdio-only by default. Opting into http explicitly adds a --transport/--addr flag surface regardless of size.
+	MCP                         MCPConfig           `yaml:"mcp,omitempty" json:"mcp"`                                 // MCP server generation config; when unset, small APIs (typed-endpoint count <= DefaultRemoteTransportEndpointThreshold) get stdio+http compiled in by APISpec.EffectiveMCPTransports so the same binary can serve cloud-hosted agents. Larger APIs without an explicit orchestration mode default to the Cloudflare MCP pattern during generation. Opting into http explicitly adds a --transport/--addr flag surface regardless of size.
 	Throttling                  ThrottlingConfig    `yaml:"throttling,omitempty" json:"throttling"`                   // cost-based throttling config; when Enabled with a recognized Shape, the generator emits a ThrottleState (generic harness) plus a per-Shape parser that reads the API's cost bucket. Only the "shopify" Shape ships in v1.
 	Streaming                   StreamingConfig     `yaml:"streaming,omitempty" json:"streaming"`                     // streaming-primary ingest config; when Transport is websocket, emits a live ws sync scaffold plus REST metadata refresh and rebase-log support.
 }
@@ -1187,7 +1187,7 @@ func (c *AuthConfig) OAuth2RefreshTokenEnvVar() *AuthEnvVar {
 			return &c.EnvVarSpecs[i]
 		}
 	}
-	for i := len(c.EnvVarSpecs) - 1; i >= 0; i-- {
+	for i := range slices.Backward(c.EnvVarSpecs) {
 		if c.EnvVarSpecs[i].EffectiveKind() == AuthEnvVarKindAuthFlowInput {
 			return &c.EnvVarSpecs[i]
 		}
@@ -1651,10 +1651,10 @@ type LookupSeed struct {
 // Transport list is empty, the resolved transport set is computed by
 // APISpec.EffectiveMCPTransports: small APIs (<= DefaultRemoteTransportEndpointThreshold
 // typed endpoints) get [stdio, http] so the same binary can serve cloud-hosted
-// agents at no tool-count cost, and larger APIs fall back to stdio-only so the
-// existing tools-manifest stays untouched until the spec author opts into the
-// orchestration pattern. Setting Transport explicitly bypasses the default and
-// is honored as-is.
+// agents at no tool-count cost. Large APIs whose orchestration mode is unset
+// are defaulted by the generator to the Cloudflare MCP pattern, which also sets
+// [stdio, http] when Transport is empty. Setting Transport explicitly bypasses
+// the transport default and is honored as-is.
 //
 // Opting http into Transport adds a --transport flag (stdio|http) and, for http,
 // an --addr flag so the same binary can also serve an HTTP streamable transport.
@@ -1662,8 +1662,9 @@ type LookupSeed struct {
 // Rationale: stdio-only servers can only reach clients that share a filesystem
 // and can spawn a subprocess. Cloud-hosted agents (hosted Claude Code sessions,
 // Managed Agents, web clients) cannot, so they need a remote transport option.
-// Declaring transports in the spec rather than inferring at generate time keeps
-// the decision visible and reviewable in the published CLI's source spec.
+// Explicitly declaring transports keeps the decision visible and reviewable in
+// the published CLI's source spec. The generator's large-surface default only
+// fills the unset case where endpoint mirrors are known to overload agents.
 //
 // Allowed Transport values: "stdio", "http". An empty Transport list is
 // resolved per the rule above; MCPConfig.EffectiveTransports remains the
@@ -1671,12 +1672,12 @@ type LookupSeed struct {
 // when Transport is empty. Unknown values are rejected at spec load; this
 // prevents silent drift when new transports are introduced.
 type MCPConfig struct {
-	Transport              []string `yaml:"transport,omitempty" json:"transport,omitempty"`                             // allowed transports the generated binary compiles support for; empty resolves via APISpec.EffectiveMCPTransports (stdio+http for small APIs, stdio-only for larger ones). Runtime transport is chosen via the --transport flag and PP_MCP_TRANSPORT env.
+	Transport              []string `yaml:"transport,omitempty" json:"transport,omitempty"`                             // allowed transports the generated binary compiles support for; empty resolves via APISpec.EffectiveMCPTransports for small APIs and via the large-surface generator default when code orchestration is auto-applied. Runtime transport is chosen via the --transport flag and PP_MCP_TRANSPORT env.
 	Addr                   string   `yaml:"addr,omitempty" json:"addr,omitempty"`                                       // default bind address for the http transport (e.g., ":7777"). Blank means runtime default (":7777"). Ignored unless http is in Transport.
 	Intents                []Intent `yaml:"intents,omitempty" json:"intents,omitempty"`                                 // higher-level MCP tools that compose multiple endpoint calls. The agent sees one intent tool; the generator emits a handler that fans out to the declared endpoints sequentially. Anti-pattern to fight: one-tool-per-endpoint mirrors that force agents to stitch primitives.
 	EndpointTools          string   `yaml:"endpoint_tools,omitempty" json:"endpoint_tools,omitempty"`                   // "visible" (default) keeps the per-endpoint MCP tools; "hidden" suppresses them so only intents + generator-emitted tools appear. Use "hidden" when intents fully cover the surface and raw endpoints would be noise.
 	Orchestration          string   `yaml:"orchestration,omitempty" json:"orchestration,omitempty"`                     // "endpoint-mirror" (default), "intent", or "code". Code-orchestration emits a thin <api>_search + <api>_execute pair covering the full surface in ~1K tokens; used for very large APIs where even intent-grouped tools would overflow context. Mutually exclusive with endpoint-mirror at emission time.
-	OrchestrationThreshold int      `yaml:"orchestration_threshold,omitempty" json:"orchestration_threshold,omitempty"` // endpoint count above which the generator warns that code-orchestration would be a better default. Zero means use the built-in default (50).
+	OrchestrationThreshold int      `yaml:"orchestration_threshold,omitempty" json:"orchestration_threshold,omitempty"` // endpoint count above which the generator auto-applies code orchestration when Orchestration is unset. Zero means use the built-in default (50).
 }
 
 // Intent declares an MCP tool that composes multiple endpoint calls into a
@@ -2910,7 +2911,7 @@ func ReservedResourceParentPrefixCandidate(name, path string) string {
 
 func ReservedResourcePathTerminatesAt(name, path string) bool {
 	segments := splitRequestPath(path)
-	for i := len(segments) - 1; i >= 0; i-- {
+	for i := range slices.Backward(segments) {
 		if isPathParamLikeSegment(segments[i]) {
 			continue
 		}
@@ -4614,9 +4615,10 @@ func validateMCP(m MCPConfig, resources map[string]Resource) error {
 }
 
 // DefaultOrchestrationThreshold is the endpoint-count above which the
-// generator recommends (but does not require) code-orchestration. At 50+
-// endpoints, even intent-grouped tools tend to overflow an agent's usable
-// context; code-orchestration covers the full surface in a pair of tools.
+// generator defaults specs with no explicit MCP orchestration mode to
+// code-orchestration. At 50+ endpoints, even intent-grouped tools tend to
+// overflow an agent's usable context; code-orchestration covers the full
+// surface in a pair of tools.
 const DefaultOrchestrationThreshold = 50
 
 // DefaultRemoteTransportEndpointThreshold is the typed-endpoint count at or
@@ -4624,8 +4626,9 @@ const DefaultOrchestrationThreshold = 50
 // when the spec leaves mcp.transport unset. Stdio-only servers cannot reach
 // cloud-hosted agents, and at small surface sizes adding http has no cost in
 // tool count or agent context. The 30-endpoint cutoff matches the polish
-// skill's "zero-cost win at <30 endpoints" guidance. Larger APIs are left to
-// the orchestration-pattern recommendation in warnUnenrichedLargeMCPSurface.
+// skill's "zero-cost win at <30 endpoints" guidance. Larger APIs are handled
+// by the generator's large-surface Cloudflare MCP default when the spec leaves
+// orchestration unset.
 const DefaultRemoteTransportEndpointThreshold = 30
 
 // EffectiveOrchestrationThreshold returns the resolved threshold, applying
@@ -4635,6 +4638,41 @@ func (m MCPConfig) EffectiveOrchestrationThreshold() int {
 		return DefaultOrchestrationThreshold
 	}
 	return m.OrchestrationThreshold
+}
+
+// LargeMCPSurfaceDefaultResult describes whether the large-API MCP default
+// applies, plus the values used to make that decision.
+type LargeMCPSurfaceDefaultResult struct {
+	Applied            bool
+	EndpointCount      int
+	Threshold          int
+	TransportDefaulted bool
+}
+
+// ApplyLargeMCPSurfaceDefault applies the large-API MCP default in place.
+// Explicit orchestration modes are honored as opt-outs, including
+// endpoint-mirror. The returned result reports the pre-application decision so
+// callers can print exact diagnostics without recomputing endpoint totals.
+func (s *APISpec) ApplyLargeMCPSurfaceDefault() LargeMCPSurfaceDefaultResult {
+	var result LargeMCPSurfaceDefaultResult
+	if s == nil {
+		return result
+	}
+	threshold := s.MCP.EffectiveOrchestrationThreshold()
+	total := s.TypedEndpointCount()
+	result.EndpointCount = total
+	result.Threshold = threshold
+	if total <= threshold || s.MCP.Orchestration != "" {
+		return result
+	}
+	result.Applied = true
+	result.TransportDefaulted = len(s.MCP.Transport) == 0
+	if len(s.MCP.Transport) == 0 {
+		s.MCP.Transport = []string{"stdio", "http"}
+	}
+	s.MCP.Orchestration = "code"
+	s.MCP.EndpointTools = "hidden"
+	return result
 }
 
 // IsCodeOrchestration reports whether this MCP config opts into the
@@ -4693,8 +4731,8 @@ func (s *APISpec) HasMCPTransport(t string) bool {
 
 // TypedEndpointCount returns the number of typed endpoints across all
 // resources and sub-resources. Shared by EffectiveMCPTransports (small-API
-// auto-http default) and the generator's large-surface MCP-warning emitter
-// so the two endpoint-count thresholds read from a single source of truth.
+// auto-http default) and the generator's large-surface MCP default so the two
+// endpoint-count thresholds read from a single source of truth.
 func (s *APISpec) TypedEndpointCount() int {
 	if s == nil {
 		return 0

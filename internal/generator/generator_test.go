@@ -13942,12 +13942,10 @@ func TestGenerateMCPMainExplicitStdioOnlyHonored(t *testing.T) {
 	assert.NotContains(t, body, "PP_MCP_TRANSPORT", "explicit stdio-only spec must not reference the transport env override")
 }
 
-// TestGenerateMCPMainLargeAPIStaysStdioOnly confirms that the auto-http
-// default only fires for small APIs. Above the endpoint threshold the
-// generator defers to the orchestration-pattern recommendation in
-// warnUnenrichedLargeMCPSurface; auto-extending transport there would be
-// the wrong fix because the dominant problem is tool-count, not reach.
-func TestGenerateMCPMainLargeAPIStaysStdioOnly(t *testing.T) {
+// TestGenerateMCPMainLargeAPIDefaultsCodeOrchestration confirms that large
+// APIs with no explicit orchestration mode get the Cloudflare MCP pattern by
+// default: remote-capable transport plus the thin search/execute surface.
+func TestGenerateMCPMainLargeAPIDefaultsCodeOrchestration(t *testing.T) {
 	t.Parallel()
 
 	apiSpec := &spec.APISpec{
@@ -13958,13 +13956,13 @@ func TestGenerateMCPMainLargeAPIStaysStdioOnly(t *testing.T) {
 	}
 	// Synthesize an above-threshold typed-endpoint surface.
 	r := spec.Resource{Endpoints: map[string]spec.Endpoint{}}
-	for i := range spec.DefaultRemoteTransportEndpointThreshold + 1 {
+	for i := range spec.DefaultOrchestrationThreshold + 1 {
 		name := fmt.Sprintf("get_%d", i)
 		r.Endpoints[name] = spec.Endpoint{Method: "GET", Path: fmt.Sprintf("/items/%d", i)}
 	}
 	apiSpec.Resources["items"] = r
-	require.Greater(t, apiSpec.TypedEndpointCount(), spec.DefaultRemoteTransportEndpointThreshold,
-		"synthetic spec must exceed the small-API threshold")
+	require.Greater(t, apiSpec.TypedEndpointCount(), spec.DefaultOrchestrationThreshold,
+		"synthetic spec must exceed the orchestration threshold")
 
 	outputDir := filepath.Join(t.TempDir(), naming.CLI(apiSpec.Name))
 	gen := New(apiSpec, outputDir)
@@ -13975,8 +13973,63 @@ func TestGenerateMCPMainLargeAPIStaysStdioOnly(t *testing.T) {
 	require.NoError(t, err)
 	body := string(data)
 
+	assert.Equal(t, "code", apiSpec.MCP.Orchestration)
+	assert.Equal(t, "hidden", apiSpec.MCP.EndpointTools)
+	assert.Equal(t, []string{"stdio", "http"}, apiSpec.MCP.Transport)
 	assert.Contains(t, body, "server.ServeStdio(s)", "large-API default must still call ServeStdio")
-	assert.NotContains(t, body, "NewStreamableHTTPServer", "large-API default must not auto-enable http transport")
+	assert.Contains(t, body, "NewStreamableHTTPServer", "large-API default must auto-enable http transport")
+
+	codeOrchPath := filepath.Join(outputDir, "internal", "mcp", "code_orch.go")
+	codeOrch, err := os.ReadFile(codeOrchPath)
+	require.NoError(t, err, "code_orch.go must be emitted by the large-API default")
+	assert.Contains(t, string(codeOrch), `mcplib.NewTool("demo_search"`)
+	assert.Contains(t, string(codeOrch), `mcplib.NewTool("demo_execute"`)
+
+	toolsPath := filepath.Join(outputDir, "internal", "mcp", "tools.go")
+	toolsData, err := os.ReadFile(toolsPath)
+	require.NoError(t, err)
+	toolsBody := string(toolsData)
+	assert.Contains(t, toolsBody, "RegisterCodeOrchestrationTools(s)")
+	assert.NotContains(t, toolsBody, `mcplib.NewTool("items_get_0"`)
+}
+
+// TestGenerateMCPMainLargeAPIExplicitEndpointMirrorHonored covers the opt-out
+// path for users who deliberately want the raw endpoint mirror past the default
+// orchestration threshold.
+func TestGenerateMCPMainLargeAPIExplicitEndpointMirrorHonored(t *testing.T) {
+	t.Parallel()
+
+	apiSpec := &spec.APISpec{
+		Name:      "demo",
+		BaseURL:   "https://api.example.com",
+		Auth:      spec.AuthConfig{Type: "none"},
+		MCP:       spec.MCPConfig{Orchestration: "endpoint-mirror"},
+		Resources: map[string]spec.Resource{},
+	}
+	r := spec.Resource{Endpoints: map[string]spec.Endpoint{}}
+	for i := range spec.DefaultOrchestrationThreshold + 1 {
+		name := fmt.Sprintf("get_%d", i)
+		r.Endpoints[name] = spec.Endpoint{Method: "GET", Path: fmt.Sprintf("/items/%d", i)}
+	}
+	apiSpec.Resources["items"] = r
+
+	outputDir := filepath.Join(t.TempDir(), naming.CLI(apiSpec.Name))
+	gen := New(apiSpec, outputDir)
+	require.NoError(t, gen.Generate())
+
+	assert.Equal(t, "endpoint-mirror", apiSpec.MCP.Orchestration)
+	assert.Empty(t, apiSpec.MCP.EndpointTools)
+	assert.Empty(t, apiSpec.MCP.Transport)
+
+	_, err := os.Stat(filepath.Join(outputDir, "internal", "mcp", "code_orch.go"))
+	assert.True(t, os.IsNotExist(err), "explicit endpoint-mirror opt-out must not emit code_orch.go")
+
+	mainPath := filepath.Join(outputDir, "cmd", naming.MCP(apiSpec.Name), "main.go")
+	data, err := os.ReadFile(mainPath)
+	require.NoError(t, err)
+	body := string(data)
+	assert.Contains(t, body, "server.ServeStdio(s)")
+	assert.NotContains(t, body, "NewStreamableHTTPServer")
 }
 
 // TestGenerateMCPMainRemoteOptIn confirms that declaring mcp.transport: [stdio, http]
@@ -14117,6 +14170,100 @@ func TestGenerateMCPCodeOrchestrationGlobalPathTemplateVars(t *testing.T) {
 
 	runGoCommand(t, outputDir, "mod", "tidy")
 	runGoCommand(t, outputDir, "build", "./...")
+}
+
+// TestGenerateMCPAutoCodeOrchestrationPreservesDeclaredIntents proves that
+// the large-surface default suppresses raw endpoint mirrors without dropping
+// explicit intent tools authored in the spec.
+func TestGenerateMCPAutoCodeOrchestrationPreservesDeclaredIntents(t *testing.T) {
+	t.Parallel()
+
+	apiSpec := &spec.APISpec{
+		Name:    "demo",
+		BaseURL: "https://api.example.com",
+		Auth:    spec.AuthConfig{Type: "none"},
+		MCP: spec.MCPConfig{
+			Intents: []spec.Intent{
+				{
+					Name:        "fetch_first_item",
+					Description: "Fetch the first item through the typed client",
+					Steps: []spec.IntentStep{
+						{Endpoint: "items.get_0", Capture: "item"},
+					},
+					Returns: "item",
+				},
+			},
+		},
+		Resources: map[string]spec.Resource{},
+	}
+	r := spec.Resource{Endpoints: map[string]spec.Endpoint{}}
+	for i := range spec.DefaultOrchestrationThreshold + 1 {
+		name := fmt.Sprintf("get_%d", i)
+		r.Endpoints[name] = spec.Endpoint{Method: "GET", Path: fmt.Sprintf("/items/%d", i)}
+	}
+	apiSpec.Resources["items"] = r
+
+	outputDir := filepath.Join(t.TempDir(), naming.CLI(apiSpec.Name))
+	gen := New(apiSpec, outputDir)
+	require.NoError(t, gen.Generate())
+
+	toolsPath := filepath.Join(outputDir, "internal", "mcp", "tools.go")
+	toolsData, err := os.ReadFile(toolsPath)
+	require.NoError(t, err)
+	toolsBody := string(toolsData)
+	assert.Contains(t, toolsBody, "RegisterCodeOrchestrationTools(s)")
+	assert.Contains(t, toolsBody, "RegisterIntents(s)")
+	assert.NotContains(t, toolsBody, `mcplib.NewTool("items_get_0"`)
+
+	intentsPath := filepath.Join(outputDir, "internal", "mcp", "intents.go")
+	intentsData, err := os.ReadFile(intentsPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(intentsData), `mcplib.NewTool("fetch_first_item"`)
+
+	_, err = os.Stat(filepath.Join(outputDir, "internal", "mcp", "code_orch.go"))
+	require.NoError(t, err)
+
+	runGoCommand(t, outputDir, "mod", "tidy")
+	runGoCommand(t, outputDir, "build", "./...")
+}
+
+// TestGenerateMCPSurfaceAppliesLargeDefault proves partial MCP regeneration
+// (used by mcp-sync) resolves the same large-surface default as a full
+// Generate() call before rendering tools.go and the MCP entrypoint.
+func TestGenerateMCPSurfaceAppliesLargeDefault(t *testing.T) {
+	t.Parallel()
+
+	apiSpec := &spec.APISpec{
+		Name:      "demo",
+		BaseURL:   "https://api.example.com",
+		Auth:      spec.AuthConfig{Type: "none"},
+		Resources: map[string]spec.Resource{},
+	}
+	r := spec.Resource{Endpoints: map[string]spec.Endpoint{}}
+	for i := range spec.DefaultOrchestrationThreshold + 1 {
+		name := fmt.Sprintf("get_%d", i)
+		r.Endpoints[name] = spec.Endpoint{Method: "GET", Path: fmt.Sprintf("/items/%d", i)}
+	}
+	apiSpec.Resources["items"] = r
+
+	outputDir := filepath.Join(t.TempDir(), naming.CLI(apiSpec.Name))
+	gen := New(apiSpec, outputDir)
+	require.NoError(t, gen.GenerateMCPSurface())
+
+	assert.Equal(t, "code", apiSpec.MCP.Orchestration)
+	assert.Equal(t, "hidden", apiSpec.MCP.EndpointTools)
+	assert.Equal(t, []string{"stdio", "http"}, apiSpec.MCP.Transport)
+
+	toolsPath := filepath.Join(outputDir, "internal", "mcp", "tools.go")
+	toolsData, err := os.ReadFile(toolsPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(toolsData), "RegisterCodeOrchestrationTools(s)")
+	assert.NotContains(t, string(toolsData), `mcplib.NewTool("items_get_0"`)
+
+	mainPath := filepath.Join(outputDir, "cmd", naming.MCP(apiSpec.Name), "main.go")
+	mainData, err := os.ReadFile(mainPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(mainData), "NewStreamableHTTPServer")
 }
 
 // TestGenerateMCPCodeOrchestrationSkippedByDefault guards against the

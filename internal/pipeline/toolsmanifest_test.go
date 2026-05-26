@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1221,6 +1222,30 @@ func TestWriteToolsManifest_MCPSurfaceMetadata(t *testing.T) {
 			},
 		},
 	}
+
+	require.NoError(t, WriteToolsManifest(dir, parsed))
+
+	got, err := ReadToolsManifest(dir)
+	require.NoError(t, err)
+	require.NotNil(t, got.MCP)
+	assert.Equal(t, "hidden", got.MCP.EndpointTools)
+	assert.Equal(t, "code", got.MCP.Orchestration)
+	assert.False(t, got.EndpointMirrorsVisible())
+}
+
+func TestWriteToolsManifest_AppliesLargeMCPSurfaceDefault(t *testing.T) {
+	dir := t.TempDir()
+	parsed := &spec.APISpec{
+		Name:      "surface-api",
+		BaseURL:   "https://api.example.com",
+		Resources: map[string]spec.Resource{},
+	}
+	r := spec.Resource{Endpoints: map[string]spec.Endpoint{}}
+	for i := range spec.DefaultOrchestrationThreshold + 1 {
+		name := fmt.Sprintf("get_%d", i)
+		r.Endpoints[name] = spec.Endpoint{Method: "GET", Path: fmt.Sprintf("/items/%d", i)}
+	}
+	parsed.Resources["Items"] = r
 
 	require.NoError(t, WriteToolsManifest(dir, parsed))
 
