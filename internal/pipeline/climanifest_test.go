@@ -1678,7 +1678,7 @@ func TestPopulateMCPMetadata(t *testing.T) {
 	assert.Equal(t, "Use this test credential.", m.AuthDescription)
 }
 
-func TestPopulateMCPMetadataAppliesLargeMCPSurfaceDefault(t *testing.T) {
+func TestPopulateMCPMetadataDoesNotMutateLargeMCPSurfaceDefault(t *testing.T) {
 	parsed := &spec.APISpec{
 		Name:      "test",
 		Auth:      spec.AuthConfig{Type: "none"},
@@ -1694,9 +1694,10 @@ func TestPopulateMCPMetadataAppliesLargeMCPSurfaceDefault(t *testing.T) {
 	var m CLIManifest
 	populateMCPMetadata(&m, parsed)
 
-	assert.Equal(t, "code", parsed.MCP.Orchestration)
-	assert.Equal(t, "hidden", parsed.MCP.EndpointTools)
-	assert.Equal(t, []string{"stdio", "http"}, parsed.MCP.Transport)
+	assert.Equal(t, spec.DefaultOrchestrationThreshold+1, m.MCPToolCount)
+	assert.Empty(t, parsed.MCP.Orchestration)
+	assert.Empty(t, parsed.MCP.EndpointTools)
+	assert.Empty(t, parsed.MCP.Transport)
 }
 
 func TestPopulateMCPMetadataMCPBinaryUsesAPINameWhenPresent(t *testing.T) {

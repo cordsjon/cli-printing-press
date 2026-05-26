@@ -7,7 +7,7 @@ import (
 	"github.com/mvanhorn/cli-printing-press/v4/internal/spec"
 )
 
-const largeMCPSurfaceDefaultInfo = `info: applied Cloudflare MCP pattern (%d endpoints > %d threshold): orchestration code, endpoint_tools hidden, transport [stdio,http] when unset. Set mcp.orchestration: endpoint-mirror to opt out.
+const largeMCPSurfaceDefaultInfo = `info: applied Cloudflare MCP pattern (%d endpoints > %d threshold): orchestration code, endpoint_tools hidden, %s. Set mcp.orchestration: endpoint-mirror to opt out.
 `
 
 // applyLargeMCPSurfaceDefault honors the contract on
@@ -18,9 +18,12 @@ func applyLargeMCPSurfaceDefault(s *spec.APISpec, w io.Writer) {
 	if s == nil {
 		return
 	}
-	threshold := s.MCP.EffectiveOrchestrationThreshold()
-	total := s.TypedEndpointCount()
-	if s.ApplyLargeMCPSurfaceDefault() {
-		fmt.Fprintf(w, largeMCPSurfaceDefaultInfo, total, threshold)
+	result := s.ApplyLargeMCPSurfaceDefault()
+	if result.Applied {
+		transportNote := "preserved explicit transport"
+		if result.TransportDefaulted {
+			transportNote = "transport [stdio,http]"
+		}
+		fmt.Fprintf(w, largeMCPSurfaceDefaultInfo, result.EndpointCount, result.Threshold, transportNote)
 	}
 }

@@ -16,6 +16,7 @@ func TestApplyLargeMCPSurfaceDefault(t *testing.T) {
 		spec            *spec.APISpec
 		wantInfo        bool
 		wantContaining  string
+		wantNotContain  string
 		wantOrch        string
 		wantEndpoint    string
 		wantTransport   []string
@@ -110,7 +111,8 @@ func TestApplyLargeMCPSurfaceDefault(t *testing.T) {
 				Transport: []string{"stdio"},
 			}),
 			wantInfo:       true,
-			wantContaining: "applied Cloudflare MCP pattern",
+			wantContaining: "preserved explicit transport",
+			wantNotContain: "transport [stdio,http]",
 			wantOrch:       "code",
 			wantEndpoint:   "hidden",
 			wantTransport:  []string{"stdio"},
@@ -128,6 +130,9 @@ func TestApplyLargeMCPSurfaceDefault(t *testing.T) {
 				}
 				if !strings.Contains(got, tt.wantContaining) {
 					t.Errorf("info line missing expected substring %q\nfull output:\n%s", tt.wantContaining, got)
+				}
+				if tt.wantNotContain != "" && strings.Contains(got, tt.wantNotContain) {
+					t.Errorf("info line contained unexpected substring %q\nfull output:\n%s", tt.wantNotContain, got)
 				}
 			} else {
 				if got != "" {

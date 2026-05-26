@@ -489,7 +489,6 @@ func populateMCPMetadata(m *CLIManifest, parsed *spec.APISpec) {
 	if parsed == nil {
 		return
 	}
-	parsed.ApplyLargeMCPSurfaceDefault()
 	total, public := parsed.CountMCPTools()
 	mcpName := m.APIName
 	if mcpName == "" {

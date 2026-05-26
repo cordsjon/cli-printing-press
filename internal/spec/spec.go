@@ -4640,23 +4640,39 @@ func (m MCPConfig) EffectiveOrchestrationThreshold() int {
 	return m.OrchestrationThreshold
 }
 
-// ApplyLargeMCPSurfaceDefault applies the large-API MCP default in place. It
-// returns true when it changed the spec. Explicit orchestration modes are
-// honored as opt-outs, including endpoint-mirror.
-func (s *APISpec) ApplyLargeMCPSurfaceDefault() bool {
+// LargeMCPSurfaceDefaultResult describes whether the large-API MCP default
+// applies, plus the values used to make that decision.
+type LargeMCPSurfaceDefaultResult struct {
+	Applied            bool
+	EndpointCount      int
+	Threshold          int
+	TransportDefaulted bool
+}
+
+// ApplyLargeMCPSurfaceDefault applies the large-API MCP default in place.
+// Explicit orchestration modes are honored as opt-outs, including
+// endpoint-mirror. The returned result reports the pre-application decision so
+// callers can print exact diagnostics without recomputing endpoint totals.
+func (s *APISpec) ApplyLargeMCPSurfaceDefault() LargeMCPSurfaceDefaultResult {
+	var result LargeMCPSurfaceDefaultResult
 	if s == nil {
-		return false
+		return result
 	}
 	threshold := s.MCP.EffectiveOrchestrationThreshold()
-	if s.TypedEndpointCount() <= threshold || s.MCP.Orchestration != "" {
-		return false
+	total := s.TypedEndpointCount()
+	result.EndpointCount = total
+	result.Threshold = threshold
+	if total <= threshold || s.MCP.Orchestration != "" {
+		return result
 	}
+	result.Applied = true
+	result.TransportDefaulted = len(s.MCP.Transport) == 0
 	if len(s.MCP.Transport) == 0 {
 		s.MCP.Transport = []string{"stdio", "http"}
 	}
 	s.MCP.Orchestration = "code"
 	s.MCP.EndpointTools = "hidden"
-	return true
+	return result
 }
 
 // IsCodeOrchestration reports whether this MCP config opts into the
