@@ -31,7 +31,7 @@
 ```json
 "mcpServers": {
   "consigliere": {
-    "command": "/Users/jcords-macmini/printing-press/library/consigliere/consigliere-pp-mcp",
+    "command": "/Users/jc-folder/printing-press/library/consigliere/consigliere-pp-mcp",
     "args": [],
     "env": {}
   }

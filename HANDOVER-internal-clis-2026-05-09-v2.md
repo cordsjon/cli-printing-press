@@ -60,9 +60,9 @@ Same cycle with `--spec http://localhost:9120/openapi.json --name poster-engine`
 After all 3 CLIs ship:
 1. Add to `~/.claude/settings.json` mcpServers:
 ```json
-"consigliere":   { "command": "/Users/jcords-macmini/printing-press/library/consigliere/consigliere-pp-cli",    "args": ["mcp"] },
-"hermes":        { "command": "/Users/jcords-macmini/printing-press/library/hermes/hermes-pp-cli",              "args": ["mcp"] },
-"poster-engine": { "command": "/Users/jcords-macmini/printing-press/library/poster-engine/poster-engine-pp-cli","args": ["mcp"] }
+"consigliere":   { "command": "/Users/jc-folder/printing-press/library/consigliere/consigliere-pp-cli",    "args": ["mcp"] },
+"hermes":        { "command": "/Users/jc-folder/printing-press/library/hermes/hermes-pp-cli",              "args": ["mcp"] },
+"poster-engine": { "command": "/Users/jc-folder/printing-press/library/poster-engine/poster-engine-pp-cli","args": ["mcp"] }
 ```
 2. Create wiki overview page: `wiki.py set-section "CLI Tools/Overview" <content>`
 

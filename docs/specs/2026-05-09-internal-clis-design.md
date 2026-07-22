@@ -53,9 +53,9 @@ After all three CLIs ship, register them in `~/.claude/settings.json`:
 
 ```json
 "mcpServers": {
-  "consigliere":  { "command": "/Users/jcords-macmini/printing-press/library/consigliere/consigliere-pp-cli",   "args": ["mcp"] },
-  "hermes":       { "command": "/Users/jcords-macmini/printing-press/library/hermes/hermes-pp-cli",             "args": ["mcp"] },
-  "poster-engine":{ "command": "/Users/jcords-macmini/printing-press/library/poster-engine/poster-engine-pp-cli","args": ["mcp"] }
+  "consigliere":  { "command": "/Users/jc-folder/printing-press/library/consigliere/consigliere-pp-cli",   "args": ["mcp"] },
+  "hermes":       { "command": "/Users/jc-folder/printing-press/library/hermes/hermes-pp-cli",             "args": ["mcp"] },
+  "poster-engine":{ "command": "/Users/jc-folder/printing-press/library/poster-engine/poster-engine-pp-cli","args": ["mcp"] }
 }
 ```
 
